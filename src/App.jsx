@@ -209,7 +209,7 @@ export default function App() {
   /* ---------- fetch history on mount ---------- */
   useEffect(() => {
     axios
-      .get(`${API_BASE}/history`)
+      .post(`${API_BASE}/history`)
       .then((res) => {
         const raw = Array.isArray(res.data) ? res.data : [];
         setHistoryChats(raw);
@@ -281,6 +281,18 @@ export default function App() {
     setError("");
   };
 
+  /* ---------- delete history chat ---------- */
+  const deleteChat = async (e, chatId) => {
+    e.stopPropagation(); // sidebar button click se prevent karo
+    try {
+      await axios.delete(`${API_BASE}/delete/${chatId}`);
+      setHistoryChats((prev) => prev.filter((c) => c._id !== chatId));
+    } catch (err) {
+      console.error("Delete error:", err);
+      alert("Chat delete karne mein problem aayi. Dobara try karo.");
+    }
+  };
+
   /* ---------- keyboard ---------- */
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -324,16 +336,29 @@ export default function App() {
                 Recent
               </p>
               {recentHistory.map((chat, i) => (
-                <button
-                  key={i}
-                  onClick={() => loadHistoryChat(chat)}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 group
-                    transition-all duration-150 cursor-pointer"
+                <div
+                  key={chat._id || i}
+                  className="flex items-center gap-1 group rounded-lg hover:bg-white/10 transition-all duration-150"
                 >
-                  <p className="text-sm text-gray-300 group-hover:text-white truncate leading-5">
-                    {chat.question}
-                  </p>
-                </button>
+                  <button
+                    onClick={() => loadHistoryChat(chat)}
+                    className="flex-1 text-left px-3 py-2 cursor-pointer min-w-0"
+                  >
+                    <p className="text-sm text-gray-300 group-hover:text-white truncate leading-5">
+                      {chat.question}
+                    </p>
+                  </button>
+                  {/* Delete button — hover par dikhega */}
+                  <button
+                    onClick={(e) => deleteChat(e, chat._id)}
+                    title="Delete chat"
+                    className="flex-shrink-0 p-1.5 mr-1 rounded-md opacity-0 group-hover:opacity-100
+                      text-gray-500 hover:text-red-400 hover:bg-red-400/10
+                      transition-all duration-150 cursor-pointer"
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
               ))}
             </>
           )}
