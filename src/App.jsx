@@ -1,492 +1,368 @@
+import React, { useCallback, useEffect, useState } from "react";
+import ReactFlow, {
+  Background,
+  Controls,
+  MiniMap,
+  addEdge,
+  useEdgesState,
+  useNodesState,
+} from "reactflow";
+import "reactflow/dist/style.css";
 import axios from "axios";
-import React, { useEffect, useRef, useState } from "react";
+import InputNode from "./nodes/InputNode";
+import ResultNode from "./nodes/ResultNode";
+import HistoryModal from "./components/HistoryModal";
+import "./flow.css";
 
+/* ─────────────────────────── constants ─────────────────────────── */
 const API_BASE =
   "https://ai-assistant-in-node-js-with-gemini-node-5d60.onrender.com/api/ask/AIAssistant";
 
-const suggestedQueries = [
-  "What can you help me with?",
-  "Tell me about AI technology",
-  "How does machine learning work?",
-  "Explain artificial intelligence",
-  "What is deep learning?",
-  "How does natural language processing work?",
+const nodeTypes = {
+  inputNode: InputNode,
+  resultNode: ResultNode,
+};
+
+/* ─────────────────────── initial nodes ─────────────────────────── */
+const initialEdges = [
+  {
+    id: "e-input-result",
+    source: "input-1",
+    sourceHandle: "out",
+    target: "result-1",
+    targetHandle: "in",
+    animated: true,
+    style: { stroke: "url(#edgeGradient)", strokeWidth: 2.5 },
+    type: "smoothstep",
+  },
 ];
 
-// Icons
-const SendIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-  </svg>
-);
+const INIT_NODES = [
+  {
+    id: "input-1",
+    type: "inputNode",
+    position: { x: 200, y: 60 },
+    data: { prompt: "", onPromptChange: () => {} },
+    draggable: true,
+  },
+  {
+    id: "result-1",
+    type: "resultNode",
+    position: { x: 200, y: 380 },
+    data: { response: "", loading: false, error: "", saving: false, saved: false, onSave: () => {} },
+    draggable: true,
+  },
+];
 
-const CopyIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-4 h-4">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-4 h-4">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-  </svg>
-);
-
-const BotIcon = () => (
-  <svg viewBox="0 0 40 40" fill="none" className="w-full h-full">
-    <circle cx="20" cy="20" r="20" fill="url(#botGrad)" />
-    <defs>
-      <linearGradient id="botGrad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#10a37f" />
-        <stop offset="1" stopColor="#0d8a6a" />
-      </linearGradient>
-    </defs>
-    <path d="M13 20c0-3.866 3.134-7 7-7s7 3.134 7 7-3.134 7-7 7-7-3.134-7-7z" fill="white" fillOpacity="0.2" />
-    <circle cx="20" cy="20" r="4" fill="white" />
-    <circle cx="15" cy="17" r="1.5" fill="white" fillOpacity="0.8" />
-    <circle cx="25" cy="17" r="1.5" fill="white" fillOpacity="0.8" />
-  </svg>
-);
-
-const PlusIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-);
-
-const MenuIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-5 h-5">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-  </svg>
-);
-
-const TrashIcon = () => (
-  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-4 h-4">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-);
-
-function CopyButton({ text }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <button
-      onClick={handleCopy}
-      title={copied ? "Copied!" : "Copy"}
-      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-all duration-200 cursor-pointer
-        ${copied
-          ? "text-green-400 bg-green-400/10"
-          : "text-gray-400 hover:text-gray-200 hover:bg-white/10"
-        }`}
-    >
-      {copied ? <CheckIcon /> : <CopyIcon />}
-      <span>{copied ? "Copied!" : "Copy"}</span>
-    </button>
-  );
-}
-
-function MessageBubble({ role, content, isNew }) {
-  const isUser = role === "user";
-
-  return (
-    <div className={`flex gap-4 px-4 py-6 group ${isUser ? "bg-transparent" : "bg-white/[0.02]"}`}>
-      {/* Avatar */}
-      <div className="flex-shrink-0 mt-0.5">
-        {isUser ? (
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-sm font-semibold shadow-lg">
-            U
-          </div>
-        ) : (
-          <div className="w-8 h-8">
-            <BotIcon />
-          </div>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className={`text-xs font-semibold mb-2 ${isUser ? "text-violet-400" : "text-emerald-400"}`}>
-          {isUser ? "You" : "Naveen AI"}
-        </div>
-        <div className={`text-sm leading-7 whitespace-pre-wrap break-words ${isUser ? "text-gray-100" : "text-gray-200"}`}>
-          {content}
-        </div>
-
-        {/* Action bar for AI messages */}
-        {!isUser && (
-          <div className="flex items-center gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <CopyButton text={content} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LoadingDots() {
-  return (
-    <div className="flex gap-4 px-4 py-6 bg-white/[0.02]">
-      <div className="flex-shrink-0 mt-0.5">
-        <div className="w-8 h-8">
-          <BotIcon />
-        </div>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-semibold mb-3 text-emerald-400">Naveen AI</div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-          <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-          <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WelcomeScreen({ onSuggestion }) {
-  return (
-    <div className="flex flex-col items-center justify-center flex-1 px-4 pb-32">
-      {/* Logo */}
-      <div className="w-16 h-16 mb-6">
-        <BotIcon />
-      </div>
-
-      <h1 className="text-3xl font-bold text-white mb-2 text-center">
-        How can I help you today?
-      </h1>
-      <p className="text-gray-400 text-sm mb-10 text-center">
-        Powered by Gemini AI — ask me anything
-      </p>
-
-      {/* Suggestion Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
-        {suggestedQueries.map((q, i) => (
-          <button
-            key={i}
-            onClick={() => onSuggestion(q)}
-            className="group text-left px-4 py-3.5 rounded-xl border border-white/10 bg-white/5
-              hover:bg-white/10 hover:border-white/20 transition-all duration-200 cursor-pointer"
-          >
-            <span className="text-sm text-gray-300 group-hover:text-white transition-colors">
-              {q}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
+/* ──────────────────────────── App ──────────────────────────────── */
 export default function App() {
-  const [messages, setMessages] = useState([]);   // { role, content }
-  const [question, setQuestion] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [historyChats, setHistoryChats] = useState([]); // from API /history
-  const [currentSessionId, setCurrentSessionId] = useState(Date.now());
+  /* ── flow state ── */
+  const [prompt,   setPrompt]   = useState("");
+  const [response, setResponse] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState("");
+  const [saving,   setSaving]   = useState(false);
+  const [saved,    setSaved]    = useState(false);
 
-  const messagesEndRef = useRef(null);
-  const textareaRef = useRef(null);
+  /* ── history state ── */
+  const [historyOpen,    setHistoryOpen]    = useState(false);
+  const [historyList,    setHistoryList]    = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFetched, setHistoryFetched] = useState(false);
 
-  /* ---------- fetch history on mount ---------- */
-  useEffect(() => {
-    axios
-      .post(`${API_BASE}/history`)
-      .then((res) => {
-        const raw = Array.isArray(res.data) ? res.data : [];
-        setHistoryChats(raw);
-      })
-      .catch((err) => console.error("History fetch error:", err));
-  }, []);
+  /* ── nodes / edges ── */
+  const [nodes, setNodes, onNodesChange] = useNodesState(INIT_NODES);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  /* ---------- auto scroll ---------- */
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  /* ─────────── sync helper ─────────── */
+  const syncNodes = useCallback(
+    (p, r, l, e, sv, sd, onSaveFn) => {
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id === "input-1")
+            return { ...node, data: { ...node.data, prompt: p, onPromptChange: (v) => handlePromptChangeRef.current(v) } };
+          if (node.id === "result-1")
+            return { ...node, data: { ...node.data, response: r, loading: l, error: e, saving: sv, saved: sd, onSave: onSaveFn || handleSaveSyncRef.current } };
+          return node;
+        })
+      );
+    },
+    [setNodes]
+  );
 
-  /* ---------- auto resize textarea ---------- */
-  const resizeTextarea = () => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-  };
+  /* ── refs so callbacks don't go stale ── */
+  const handlePromptChangeRef = React.useRef(null);
+  const handleSaveSyncRef     = React.useRef(null);
 
-  useEffect(resizeTextarea, [question]);
+  /* ─────────── prompt change ─────────── */
+  const handlePromptChange = useCallback(
+    (val) => {
+      setPrompt(val);
+      setSaved(false);
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === "input-1" ? { ...n, data: { ...n.data, prompt: val } } : n
+        )
+      );
+    },
+    [setNodes]
+  );
+  handlePromptChangeRef.current = handlePromptChange;
 
-  /* ---------- submit ---------- */
-  const handleSubmit = (e) => {
-    e?.preventDefault();
-    setError("");
-    const q = question.trim();
+  /* ─────────── save to MongoDB ─────────── */
+  const handleSaveSync = useCallback(async () => {
+    if (!prompt.trim() || !response) return;
+    setSaving(true);
+    syncNodes(prompt, response, false, "", true, false);
+    try {
+      await axios.post(`${API_BASE}/ask`, { question: prompt });
+      setSaving(false);
+      setSaved(true);
+      syncNodes(prompt, response, false, "", false, true);
+      // refresh history list silently
+      axios.post(`${API_BASE}/history`).then((res) => {
+        if (Array.isArray(res.data)) setHistoryList(res.data);
+      }).catch(() => {});
+      setTimeout(() => {
+        setSaved(false);
+        syncNodes(prompt, response, false, "", false, false);
+      }, 3000);
+    } catch {
+      setSaving(false);
+      syncNodes(prompt, response, false, "", false, false);
+      alert("Save failed. Please try again.");
+    }
+  }, [prompt, response, syncNodes]);
+  handleSaveSyncRef.current = handleSaveSync;
+
+  /* ─────────── Run Flow ─────────── */
+  const handleRunFlow = useCallback(async () => {
+    const q = prompt.trim();
     if (!q) return;
 
-    // Add user message
-    const userMsg = { role: "user", content: q };
-    setMessages((prev) => [...prev, userMsg]);
-    setQuestion("");
+    setError("");
+    setResponse("");
+    setSaved(false);
     setLoading(true);
+    syncNodes(q, "", true, "", false, false, handleSaveSyncRef.current);
 
-    axios
-      .post(`${API_BASE}/ask`, { question: q })
-      .then((result) => {
-        setLoading(false);
-        if (result.data?.chat) {
-          const aiMsg = { role: "ai", content: result.data.chat.answer };
-          setMessages((prev) => [...prev, aiMsg]);
-          // prepend to history sidebar
-          setHistoryChats((prev) => [result.data.chat, ...prev]);
-        } else {
-          setError(result.data?.message || "No response from AI.");
-        }
-      })
-      .catch(() => {
-        setLoading(false);
-        setError("Something went wrong. Please try again.");
-      });
-  };
-
-  /* ---------- new chat ---------- */
-  const startNewChat = () => {
-    setMessages([]);
-    setCurrentSessionId(Date.now());
-    setError("");
-    setQuestion("");
-  };
-
-  /* ---------- load history chat ---------- */
-  const loadHistoryChat = (chat) => {
-    setMessages([
-      { role: "user", content: chat.question },
-      { role: "ai", content: chat.answer },
-    ]);
-    setError("");
-  };
-
-  /* ---------- delete history chat ---------- */
-  const deleteChat = async (e, chatId) => {
-    e.stopPropagation(); // sidebar button click se prevent karo
     try {
-      await axios.delete(`${API_BASE}/delete/${chatId}`);
-      setHistoryChats((prev) => prev.filter((c) => c._id !== chatId));
-    } catch (err) {
-      console.error("Delete error:", err);
-      alert("Chat delete karne mein problem aayi. Dobara try karo.");
+      const result = await axios.post(`${API_BASE}/ask`, { question: q });
+      const answer = result.data?.chat?.answer || result.data?.answer || "";
+      setLoading(false);
+      if (answer) {
+        setResponse(answer);
+        syncNodes(q, answer, false, "", false, false, handleSaveSyncRef.current);
+        // silently refresh history
+        axios.post(`${API_BASE}/history`).then((res) => {
+          if (Array.isArray(res.data)) { setHistoryList(res.data); setHistoryFetched(true); }
+        }).catch(() => {});
+      } else {
+        const msg = result.data?.message || "No response from AI.";
+        setError(msg);
+        syncNodes(q, "", false, msg, false, false, handleSaveSyncRef.current);
+      }
+    } catch {
+      const msg = "Something went wrong. Please try again.";
+      setError(msg);
+      setLoading(false);
+      syncNodes(q, "", false, msg, false, false, handleSaveSyncRef.current);
     }
-  };
+  }, [prompt, syncNodes]);
 
-  /* ---------- keyboard ---------- */
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
+  /* ─────────── open history popup ─────────── */
+  const openHistory = useCallback(() => {
+    setHistoryOpen(true);
+    if (!historyFetched) {
+      setHistoryLoading(true);
+      axios
+        .post(`${API_BASE}/history`)
+        .then((res) => {
+          const data = Array.isArray(res.data) ? res.data : [];
+          setHistoryList(data);
+          setHistoryFetched(true);
+        })
+        .catch(() => setHistoryList([]))
+        .finally(() => setHistoryLoading(false));
     }
-  };
+  }, [historyFetched]);
 
-  const hasMessages = messages.length > 0;
-  const recentHistory = historyChats.slice(0, 20);
+  /* ─────────── delete one history item ─────────── */
+  const handleDeleteHistory = useCallback(async (id) => {
+    // Optimistic remove from UI immediately
+    setHistoryList((prev) => prev.filter((c) => c._id !== id));
+    try {
+      await axios.delete(`${API_BASE}/delete/${id}`);
+    } catch {
+      // If API fails, re-fetch to restore correct state
+      axios.post(`${API_BASE}/history`)
+        .then((res) => { if (Array.isArray(res.data)) setHistoryList(res.data); })
+        .catch(() => {});
+      alert("Delete failed. Please try again.");
+    }
+  }, []);
+
+  /* ─────────── select a history item ─────────── */
+  const handleSelectHistory = useCallback(
+    (chat) => {
+      const p = chat.question || "";
+      const r = chat.answer   || "";
+      setPrompt(p);
+      setResponse(r);
+      setError("");
+      setSaved(false);
+      setSaving(false);
+      setLoading(false);
+      syncNodes(p, r, false, "", false, false, handleSaveSyncRef.current);
+    },
+    [syncNodes]
+  );
+
+  /* ─────────── connect ─────────── */
+  const onConnect = useCallback(
+    (params) => setEdges((eds) => addEdge({ ...params, animated: true, type: "smoothstep" }, eds)),
+    [setEdges]
+  );
+
+  /* ─────────── live node data (always fresh) ─────────── */
+  const liveNodes = nodes.map((n) => {
+    if (n.id === "input-1")
+      return { ...n, data: { ...n.data, prompt, onPromptChange: handlePromptChange } };
+    if (n.id === "result-1")
+      return { ...n, data: { ...n.data, response, loading, error, saving, saved, onSave: handleSaveSync } };
+    return n;
+  });
 
   return (
-    <div className="flex h-screen bg-[#212121] text-white overflow-hidden font-sans">
+    <div className="flow-root">
 
-      {/* ===== SIDEBAR ===== */}
-      <aside
-        className={`flex flex-col bg-[#171717] transition-all duration-300 ease-in-out flex-shrink-0
-          ${sidebarOpen ? "w-64" : "w-0 overflow-hidden"}`}
-      >
-        {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-3 border-b border-white/5">
-          <button
-            onClick={startNewChat}
-            className="flex items-center gap-2 flex-1 px-3 py-2 rounded-lg hover:bg-white/10
-              text-sm text-gray-300 hover:text-white transition-all duration-150 cursor-pointer"
-          >
-            <PlusIcon />
-            <span className="font-medium">New chat</span>
-          </button>
-        </div>
+      {/* ══════════ Top Bar ══════════ */}
+      <header className="flow-topbar">
 
-        {/* History List */}
-        <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5 scrollbar-thin">
-          {recentHistory.length === 0 ? (
-            <p className="text-xs text-gray-600 text-center mt-8 px-4">
-              No previous chats
-            </p>
-          ) : (
-            <>
-              <p className="text-xs text-gray-500 uppercase tracking-wider px-2 py-2 font-semibold">
-                Recent
-              </p>
-              {recentHistory.map((chat, i) => (
-                <div
-                  key={chat._id || i}
-                  className="flex items-center gap-1 group rounded-lg hover:bg-white/10 transition-all duration-150"
-                >
-                  <button
-                    onClick={() => loadHistoryChat(chat)}
-                    className="flex-1 text-left px-3 py-2 cursor-pointer min-w-0"
-                  >
-                    <p className="text-sm text-gray-300 group-hover:text-white truncate leading-5">
-                      {chat.question}
-                    </p>
-                  </button>
-                  {/* Delete button — hover par dikhega */}
-                  <button
-                    onClick={(e) => deleteChat(e, chat._id)}
-                    title="Delete chat"
-                    className="flex-shrink-0 p-1.5 mr-1 rounded-md opacity-0 group-hover:opacity-100
-                      text-gray-500 hover:text-red-400 hover:bg-red-400/10
-                      transition-all duration-150 cursor-pointer"
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-
-        {/* Sidebar Footer */}
-        <div className="p-3 border-t border-white/5">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-lg">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-sm font-semibold">
-              N
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-200 truncate">Naveen</p>
-              <p className="text-xs text-gray-500 truncate">AI Assistant</p>
-            </div>
+        {/* Left: brand */}
+        <div className="topbar-left">
+          <div className="brand-logo">
+            <svg viewBox="0 0 32 32" fill="none" width="28" height="28">
+              <circle cx="16" cy="16" r="16" fill="url(#logoGrad)" />
+              <defs>
+                <linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#7c3aed" />
+                  <stop offset="1" stopColor="#06b6d4" />
+                </linearGradient>
+              </defs>
+              <circle cx="16" cy="16" r="5" fill="white" fillOpacity="0.9" />
+              <circle cx="10" cy="12" r="2" fill="white" fillOpacity="0.6" />
+              <circle cx="22" cy="12" r="2" fill="white" fillOpacity="0.6" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="brand-name">Naveen AI Flow</h1>
+            <p className="brand-sub">Powered by Gemini · React Flow</p>
           </div>
         </div>
-      </aside>
 
-      {/* ===== MAIN AREA ===== */}
-      <main className="flex flex-col flex-1 min-w-0">
-
-        {/* Top Bar */}
-        <header className="flex items-center gap-3 px-4 py-3 border-b border-white/5 flex-shrink-0 bg-[#212121]">
-          <button
-            onClick={() => setSidebarOpen((o) => !o)}
-            className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white
-              transition-all duration-150 cursor-pointer"
-            title="Toggle sidebar"
-          >
-            <MenuIcon />
-          </button>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-200">Naveen AI</span>
-            <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
-              Gemini
+        {/* Center: status */}
+        <div className="topbar-center">
+          <div className="flow-status">
+            <span className={`status-dot ${loading ? "pulsing" : response ? "active" : ""}`} />
+            <span className="status-label">
+              {loading ? "Running…" : response ? "Flow complete" : "Ready"}
             </span>
           </div>
-          {hasMessages && (
-            <button
-              onClick={startNewChat}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg
-                text-xs text-gray-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
-            >
-              <PlusIcon />
-              New chat
-            </button>
-          )}
-        </header>
-
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto scroll-smooth">
-          {!hasMessages ? (
-            <WelcomeScreen onSuggestion={(q) => setQuestion(q)} />
-          ) : (
-            <div className="max-w-3xl mx-auto w-full pb-36">
-              {messages.map((msg, i) => (
-                <MessageBubble
-                  key={i}
-                  role={msg.role}
-                  content={msg.content}
-                  isNew={i === messages.length - 1}
-                />
-              ))}
-              {loading && <LoadingDots />}
-              {error && (
-                <div className="mx-4 my-3 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl">
-                  <p className="text-red-400 text-sm">{error}</p>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
         </div>
 
-        {/* Input Area */}
-        <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-[#212121]">
-          {/* Error when no messages */}
-          {error && !hasMessages && (
-            <div className="max-w-3xl mx-auto mb-2 px-4 py-2 bg-red-500/10 border border-red-500/30 rounded-xl">
-              <p className="text-red-400 text-sm">{error}</p>
-            </div>
-          )}
+        {/* Right: History + Run */}
+        <div className="topbar-right">
 
-          <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
-            <div className="relative flex items-end gap-2 bg-[#2f2f2f] rounded-2xl border border-white/10
-              hover:border-white/20 focus-within:border-white/30 transition-all duration-200 px-4 py-3 shadow-xl">
+          {/* ── History Button ── */}
+          <button className="history-btn" onClick={openHistory} title="View conversation history">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+              <path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+            </svg>
+            History
+            {historyList.length > 0 && (
+              <span className="history-count">{historyList.length > 99 ? "99+" : historyList.length}</span>
+            )}
+          </button>
 
-              {/* Textarea */}
-              <textarea
-                ref={textareaRef}
-                name="question"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Message Naveen AI…"
-                disabled={loading}
-                rows={1}
-                className="flex-1 bg-transparent outline-none text-gray-100 placeholder-gray-500
-                  resize-none leading-6 text-sm overflow-hidden disabled:opacity-50"
-                style={{ minHeight: "24px", maxHeight: "200px" }}
-              />
-
-              {/* Send Button */}
-              <button
-                type="submit"
-                disabled={loading || !question.trim()}
-                className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center
-                  transition-all duration-200 cursor-pointer
-                  ${question.trim() && !loading
-                    ? "bg-white text-black hover:bg-gray-200 shadow-md"
-                    : "bg-white/10 text-gray-600 cursor-not-allowed"
-                  }`}
-              >
-                {loading ? (
-                  <div className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <SendIcon />
-                )}
-              </button>
-            </div>
-
-            <p className="text-center text-xs text-gray-600 mt-2">
-              Naveen AI can make mistakes. Consider checking important information.
-            </p>
-          </form>
+          {/* ── Run Flow Button ── */}
+          <button
+            onClick={handleRunFlow}
+            disabled={loading || !prompt.trim()}
+            className={`run-btn ${loading ? "running" : ""}`}
+          >
+            {loading ? (
+              <>
+                <div className="btn-spinner" />
+                Running Flow…
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                Run Flow
+              </>
+            )}
+          </button>
         </div>
-      </main>
+      </header>
+
+      {/* ══════════ React Flow Canvas ══════════ */}
+      <div className="flow-canvas">
+        {/* edge gradient */}
+        <svg style={{ position: "absolute", width: 0, height: 0 }}>
+          <defs>
+            <linearGradient id="edgeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%"   stopColor="#a855f7" />
+              <stop offset="100%" stopColor="#10b981" />
+            </linearGradient>
+          </defs>
+        </svg>
+
+        <ReactFlow
+          nodes={liveNodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.25 }}
+          minZoom={0.4}
+          maxZoom={1.8}
+          proOptions={{ hideAttribution: true }}
+          style={{ background: "transparent" }}
+        >
+          <Background color="#334155" gap={28} size={1} variant="dots" />
+          <Controls
+            style={{
+              background: "#1e293b",
+              border: "1px solid rgba(148,163,184,0.1)",
+              borderRadius: 10,
+            }}
+          />
+          <MiniMap
+            nodeColor={(n) => (n.type === "inputNode" ? "#7c3aed" : "#059669")}
+            maskColor="rgba(0,0,0,0.4)"
+            style={{
+              background: "#0f172a",
+              border: "1px solid rgba(148,163,184,0.1)",
+              borderRadius: 10,
+            }}
+          />
+        </ReactFlow>
+      </div>
+
+      {/* ══════════ History Modal ══════════ */}
+      <HistoryModal
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        history={historyList}
+        loading={historyLoading}
+        onSelect={handleSelectHistory}
+        onDelete={handleDeleteHistory}
+      />
     </div>
   );
 }
